@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install MCP SDK and transport dependencies
-# Note: 'mcp' is the official package name as confirmed.
-RUN pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install \
     mcp \
     starlette \
     uvicorn \

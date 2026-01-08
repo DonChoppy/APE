@@ -53,10 +53,10 @@ cp env.example .env
 
 ```bash
 # Start Ollama and MCP server (background services)
-docker compose up -d ollama mcp-server
+docker compose up --build -d
 
-# Wait for services to be healthy (~30-60 seconds)
-docker compose logs -f ollama mcp-server
+# Wait for services to be healthy (~30-60 seconds). Check logs for any errors in a new terminal.
+docker compose logs -f ollama mcp-server sandbox-mcp
 ```
 
 #### 3. Download Models

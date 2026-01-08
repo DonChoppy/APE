@@ -335,8 +335,50 @@ class AgentCore:
                 except Exception as log_exc:  # pragma: no cover
                     logger.debug(f"Could not persist tool error: {log_exc}")
 
+            # --------------------------------------------------------------
+            # Proactive Summarization: check if this specific result is too large
+            # --------------------------------------------------------------
+            try:
+                from ape.utils import count_tokens
+                ctx_limit = getattr(self, "context_limit", None) or 8192
+                # If result is > 20% of context window or > 2000 tokens, summarize it
+                threshold = min(2000, ctx_limit // 5)
+                
+                if count_tokens(text) > threshold and fn != "summarize_text":
+                    logger.info(f"Tool result from '{fn}' is too large ({count_tokens(text)} tokens). Triggering proactive summarization.")
+                    
+                    try:
+                        # Use internal memory's summarization if available, else direct tool call
+                        if hasattr(self, "memory") and self.memory:
+                            summary = await self.memory.summarize(text)
+                        else:
+                            res_sum = await self.mcp_client.call_tool("summarize_text", {"text": text})
+                            summary = res_sum.content[0].text if res_sum.content else ""
+                            # Handle potential JWT envelope in summary tool output
+                            try:
+                                env_sum = json.loads(summary)
+                                payload_sum = env_sum.get("payload", summary)
+                                tr_sum = json.loads(payload_sum)
+                                summary = tr_sum.get("result", payload_sum)
+                            except:
+                                pass
+
+                        if summary:
+                            text = (
+                                f"⚠️ [AUTO-SUMMARIZED DUE TO SIZE]\n"
+                                f"The original output was too large for the context window. "
+                                f"Here is a concise summary of the result:\n\n"
+                                f"{summary}\n\n"
+                                f"NOTE: Full data is persisted in session history if needed."
+                            )
+                    except Exception as sum_exc:
+                        logger.warning(f"Proactive summarization failed: {sum_exc}")
+            except Exception as check_exc:
+                logger.debug(f"Summarization check failed: {check_exc}")
+
             results.append({"tool": fn, "arguments": arguments, "result": text})
             self.context_manager.add_tool_result(fn, arguments, text)
+
 
         formatted_lines = [f"🔧 SYSTEM NOTE: BEGIN_TOOL_OUTPUT (nonce: {security_nonce})\n"]
         for idx, r in enumerate(results, 1):
@@ -374,8 +416,7 @@ class AgentCore:
         # the token budget.
         # ------------------------------------------------------------------
         if hasattr(self, "memory") and self.memory:
-            # Add the new user message (conversation list may already contain
-            # older messages which are tracked separately inside memory).
+            # Add the new user message
             self.memory.add({"role": "user", "content": message})
             await self.memory.prune()
 
@@ -383,50 +424,54 @@ class AgentCore:
         if ctx_summary.strip() != "CURRENT SESSION CONTEXT:":
             system_prompt += f"\n\nCURRENT CONTEXT:\n{ctx_summary}"
 
-        # logger.debug(f"Final System Prompt:\n{system_prcontiompt}")
+        # If memory is managed internally, we prefer self.memory.messages over the passed conversation
+        # to ensure summarization/pruning logic is honored consistently.
+        if hasattr(self, "memory") and self.memory and self.memory.messages:
+            history_to_use = self.memory.messages
+        else:
+            history_to_use = conversation
 
         exec_conversation = [
             {"role": "system", "content": system_prompt},
-            *conversation,
+            *history_to_use,
             {"role": "user", "content": message},
         ]
 
-        # ------------------------------------------------------------------
-        # Sliding window guard – trim oldest messages when token budget exceeded
-        # ------------------------------------------------------------------
-
         try:
             from ape.utils import count_tokens  # local import to avoid heavy deps outside use
-
-            ctx_limit = self.context_manager.context_limit if hasattr(self.context_manager, "context_limit") else None
         except Exception:
-            ctx_limit = None
-
-        # Fallback: attempt to fetch from ChatAgent attribute if available
-        if ctx_limit is None:
-            ctx_limit = getattr(self, "context_limit", None)
-
-        if ctx_limit:
-            margin = settings.CONTEXT_MARGIN_TOKENS
-            total = sum(count_tokens(m["content"]) for m in exec_conversation)
-            if total > ctx_limit - margin:
-                # remove oldest assistant/user pairs until within budget
-                # skip first element (system prompt)
-                pruned_conv = exec_conversation[1:-1]  # messages between system and user message
-                # pop from start until fits
-                while pruned_conv and total > ctx_limit - margin:
-                    removed = pruned_conv.pop(0)
-                    total -= count_tokens(removed["content"])
-                exec_conversation = [exec_conversation[0], *pruned_conv, exec_conversation[-1]]
-        # ------------------------------------------------------------------
+            # Fallback if count_tokens is not available
+            def count_tokens(text: str) -> int:
+                return len(text) // 4 # rough estimate
 
         try:
             tools_tokens = count_tokens(json.dumps(capabilities["tools"]))
         except Exception:
             tools_tokens = 0
 
-        import ollama
+        ctx_limit = getattr(self, "context_limit", None) or 8192
 
+        def _prune(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+            """Trim middle of conversation to fit budget while keeping system + latest prompt."""
+            margin = settings.CONTEXT_MARGIN_TOKENS
+            total = sum(count_tokens(m["content"]) for m in messages) + tools_tokens
+            
+            if total <= ctx_limit - margin:
+                return messages
+            
+            logger.info(f"Pruning conversation: {total} tokens (limit {ctx_limit}, margin {margin})")
+            # Keep system prompt [0] and latest user/tool output [-1]
+            sys_msg = messages[0]
+            latest_msg = messages[-1]
+            history = messages[1:-1]
+            
+            while history and total > ctx_limit - margin:
+                removed = history.pop(0)
+                total -= count_tokens(removed["content"])
+            
+            return [sys_msg, *history, latest_msg]
+
+        import ollama
         client = ollama.AsyncClient(host=str(settings.OLLAMA_BASE_URL))
         # Normalised tools payload (OpenAI spec) – avoids 500 JSON errors
         tools_spec = await self.get_ollama_tools()
@@ -446,6 +491,9 @@ class AgentCore:
         while iteration < max_iter:
             current_chunk = ""
             has_tool_calls = False
+
+            # Dynamic pruning: ensure in-flight context (including new tool results) fits budget
+            exec_conversation = _prune(exec_conversation)
 
             # Prepare chat arguments
             chat_args = {

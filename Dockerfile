@@ -16,9 +16,10 @@ RUN apt-get update && apt-get install -y \
 COPY pyproject.toml README.md ./
 # Create dummy package to satisfy setuptools during dependency installation
 RUN mkdir ape && touch ape/__init__.py
-# Since faiss-cpu is a pure-python package, no special build steps are needed.
-# RUN pip install --no-cache-dir .'[llm,cli]'
-RUN pip install .'[llm,cli]'
+
+# Use BuildKit cache mount to persist pip cache between builds
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install .'[llm,cli]'
 
 # Copy the rest of the code
 COPY . .
