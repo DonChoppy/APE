@@ -7,7 +7,8 @@ authors = [
 ]
 requires-python = "~=3.11"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+
 keywords = ["MCP", "LLM", "agent", "Ollama"]
 dependencies = [
   "loguru>=0.7.0",
@@ -48,6 +49,9 @@ dev = [
 cli = [
   "prompt_toolkit>=3.0"
 ]
+
+[tool.setuptools]
+packages = ["ape"]
 
 [build-system]
 requires = ["setuptools>=67.0", "wheel"]

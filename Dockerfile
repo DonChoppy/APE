@@ -13,7 +13,9 @@ RUN apt-get update && apt-get install -y \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
+# Create dummy package to satisfy setuptools during dependency installation
+RUN mkdir ape && touch ape/__init__.py
 # Since faiss-cpu is a pure-python package, no special build steps are needed.
 RUN pip install --no-cache-dir .'[llm,cli]'
 

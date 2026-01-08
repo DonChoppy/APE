@@ -35,8 +35,10 @@ class _AioSqlitePool:
             return
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         for _ in range(self._size):
-            conn = await aiosqlite.connect(self.db_path)
+            # Increase timeout to 60s to handle high concurrency in Docker volumes
+            conn = await aiosqlite.connect(self.db_path, timeout=60.0)
             await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA synchronous=NORMAL")  # Optimization for WAL
             await self._queue.put(conn)
         self._initialised = True
 

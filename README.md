@@ -32,8 +32,8 @@ APE provides a sophisticated chat interface that leverages the [Model Context Pr
 
 ### Prerequisites
 
-- **Docker** and **Docker Compose**
-- **NVIDIA Container Toolkit** (for GPU support, optional but recommended)
+- **Docker** and **Docker Compose** (I use WSL2, so [Docker Desktop on Windows](https://docs.docker.com/desktop/setup/install/windows-install/#option-1-install-or-update-wsl-via-the-terminal) helped me)
+- **[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)** (for GPU support, optional but recommended)
 
 ### Docker Installation (Recommended)
 
@@ -65,14 +65,14 @@ docker compose logs -f ollama mcp-server
 # Pull required models after Ollama is healthy
 docker compose exec ollama ollama pull qwen3:4b
 docker compose exec ollama ollama pull qwen3:0.6b
-docker compose exec ollama ollama pull embeddinggemma:latest
+docker compose exec ollama ollama pull nomic-embed-text
 ```
 
 #### 4. Start Interactive Agent
 
 ```bash
 # Start the APE agent (interactive terminal session)
-docker compose --profile interactive up agent
+docker compose run --rm --service-ports agent
 ```
 
 This will attach to your terminal for interactive chat with APE.

@@ -113,6 +113,14 @@ async def get_ollama_model_info(model_name: str | None = None) -> dict:
         client = ollama.AsyncClient(host=str(settings.OLLAMA_BASE_URL))
         raw = await client.show(model_name)
     except Exception as exc:
+        # Enhance logging for "model not found" scenarios
+        try:
+            list_resp = await client.list()
+            available = [m.get('name') for m in list_resp.get('models', [])]
+            logger.error(f"Failed to find model '{model_name}'. Available models: {available}")
+        except Exception:
+            logger.error("Failed to list available models during error handling.")
+        
         raise RuntimeError(f"Failed to fetch model info for '{model_name}': {exc}") from exc
 
     info: dict = {"model": model_name}

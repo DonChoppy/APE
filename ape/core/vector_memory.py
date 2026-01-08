@@ -21,23 +21,29 @@ class VectorMemory:
         self.index: faiss.Index | None = None
         self.metadata: Dict[int, Dict[str, Any]] = {}
 
+        self.embedding_dimension = settings.EMBEDDING_SIZE or 384
         if settings.EMBEDDING_SIZE:
-            self.embedding_dimension = settings.EMBEDDING_SIZE
             logger.info(f"Using configured embedding dimension: {self.embedding_dimension}")
-        else:
-            try:
-                model_info = get_ollama_model_info(settings.EMBEDDING_MODEL)
-                self.embedding_dimension = model_info.get('embedding_length')
-                if not self.embedding_dimension:
-                    raise ValueError("Could not determine embedding dimension from model info.")
-                logger.info(f"Detected embedding dimension for {settings.EMBEDDING_MODEL}: {self.embedding_dimension}")
-            except Exception as e:
-                logger.error(f"Failed to get embedding model info: {e}. Falling back to default dimension 384.")
-                self.embedding_dimension = 384
 
     async def _init_db(self):
         """Initializes the FAISS index and metadata from files."""
         os.makedirs(settings.VECTOR_DB_PATH, exist_ok=True)
+
+        # ------------------------------------------------------------------
+        # If explicit size wasn't set, try to detect it from the model.
+        # This MUST be done here because get_ollama_model_info is async.
+        # ------------------------------------------------------------------
+        if not settings.EMBEDDING_SIZE:
+            try:
+                model_info = await get_ollama_model_info(settings.EMBEDDING_MODEL)
+                detected = model_info.get('embedding_length')
+                if detected:
+                    self.embedding_dimension = detected
+                    logger.info(f"Detected embedding dimension for {settings.EMBEDDING_MODEL}: {self.embedding_dimension}")
+                else:
+                    logger.warning(f"Could not determine embedding dimension from model info. Using default: {self.embedding_dimension}")
+            except Exception as e:
+                logger.warning(f"Failed to get embedding model info: {e}. Falling back to default dimension {self.embedding_dimension}.")
         if os.path.exists(self.index_path):
             logger.info(f"Loading FAISS index from {self.index_path}")
             self.index = faiss.read_index(self.index_path)
