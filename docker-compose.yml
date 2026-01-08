@@ -43,6 +43,7 @@ services:
       - ./ape:/app/ape
       - ape_data:/app/data
       - ape_db:/app/database
+      - ./mcp_server_config.json:/app/mcp_server_config.json
     env_file:
       - .env
     environment:
@@ -58,6 +59,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # Sandbox MCP Server (The "Hands")
+  sandbox-mcp:
+    build:
+      context: ./sandbox
+    image: ape-sandbox
+    container_name: ape_sandbox
+    ports:
+      - "8080:8080"
+    networks:
+      - default
+    restart: unless-stopped
 
   # APE CLI Agent (Interactive)
   agent:

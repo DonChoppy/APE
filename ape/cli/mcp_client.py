@@ -16,9 +16,9 @@ from ape.settings import settings
 
 class MCPClient:
     """Manage an MCP session over HTTP/SSE.
-
-    This has been refactored to connect to a standalone MCP server over the
-    network, instead of launching a subprocess via stdio.
+    
+    Simplified: Connects to a SINGLE Core Server (Gateway), which handles
+    all downstream tools.
     """
 
     def __init__(self):
@@ -37,7 +37,22 @@ class MCPClient:
 
         try:
             # The server runs on its own, so we connect to its URL
-            server_url = str(settings.MCP_SERVER_URL).rstrip("/") + "/mcp/sse"
+            # We use settings.MCP_SERVER_URL.
+            # If that is unset, we fallback to default or error?
+            # For this phase, we assume settings.MCP_SERVER_URLS might still exist but we want the PRIMARY one.
+            # Or we revert settings first?
+            # Let's assume we use the first URL if array, or the legacy URL.
+            
+            # Temporary bridge logic until settings.py is fully reverted
+            url = None
+            if hasattr(settings, "MCP_SERVER_URL") and settings.MCP_SERVER_URL:
+                 url = str(settings.MCP_SERVER_URL)
+            elif hasattr(settings, "MCP_SERVER_URLS") and settings.MCP_SERVER_URLS:
+                 url = str(settings.MCP_SERVER_URLS[0])
+            else:
+                 url = "http://localhost:8000"
+
+            server_url = url.rstrip("/") + "/mcp/sse"
             logger.info(f"🔗 [MCP CLIENT] Connecting to MCP server at {server_url}…")
 
             # create the SSE transport context by passing the URL directly
@@ -57,7 +72,7 @@ class MCPClient:
             return True
         except Exception as exc:
             logger.error(f"❌ [MCP CLIENT] Failed to connect to MCP server: {exc}")
-            traceback.print_exc()
+            # traceback.print_exc()
             # make sure objects are cleaned up in case of partial failure
             await self.disconnect()
             return False
@@ -84,7 +99,7 @@ class MCPClient:
             logger.error(f"❌ [MCP CLIENT] Error when disconnecting: {exc}")
 
     # ------------------------------------------------------------------
-    # Convenience pass-through helpers (unchanged)
+    # Convenience pass-through helpers
     # ------------------------------------------------------------------
     async def list_tools(self):
         if not self.mcp_session:

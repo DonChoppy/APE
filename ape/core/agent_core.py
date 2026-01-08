@@ -431,6 +431,14 @@ class AgentCore:
         # Normalised tools payload (OpenAI spec) – avoids 500 JSON errors
         tools_spec = await self.get_ollama_tools()
 
+        ollama_options = {
+            "temperature": settings.TEMPERATURE,
+            "top_p": settings.TOP_P,
+            "top_k": settings.TOP_K,
+        }
+        if self.context_limit:
+            ollama_options["num_ctx"] = self.context_limit
+
         max_iter = settings.MAX_TOOLS_ITERATIONS
         iteration = 0
         cumulative_resp = ""
@@ -439,87 +447,30 @@ class AgentCore:
             current_chunk = ""
             has_tool_calls = False
 
+            # Prepare chat arguments
+            chat_args = {
+                "model": settings.LLM_MODEL,
+                "messages": exec_conversation,
+                "options": ollama_options,
+                "stream": True,
+            }
+            if tools_spec:
+                chat_args["tools"] = tools_spec
+            
+            # Special case for 'think' parameter due to Ollama quirks
+            if not settings.SHOW_THOUGHTS:
+                chat_args["think"] = False
+
             try:
-                # logger.debug(f"Thinking from settings: {settings.SHOW_THOUGHTS}")
-                # stream = await client.chat(
-                #     model=settings.LLM_MODEL,
-                #     messages=exec_conversation,
-                #     tools=tools_spec,
-                #     options={"temperature": settings.TEMPERATURE,
-                #              "top_p": settings.TOP_P,
-                #              "top_k": settings.TOP_K,
-                #             },
-                #     # think=settings.SHOW_THOUGHTS,
-                #     stream=True,
-                # )
-
-                ## NOQA: about this if-else statement...
-                # Im so sorry for this. But ollama has this strange bug.
-                # when we use think=False, the model will not think (as expected)
-                # when we use think=True, the model will not think (this is the bug).
-                # but when we dont use the think parameter, the model will think (as expected).
-                # maybe the think parameter is True by default.
-
-                if settings.SHOW_THOUGHTS:
-                    stream = await client.chat(
-                        model=settings.LLM_MODEL,
-                        messages=exec_conversation,
-                        tools=tools_spec,
-                        options={"temperature": settings.TEMPERATURE,
-                                 "top_p": settings.TOP_P,
-                                 "top_k": settings.TOP_K,
-                                },
-                        stream=True,
-                    )
-                else:
-                    stream = await client.chat(
-                        model=settings.LLM_MODEL,
-                        messages=exec_conversation,
-                        tools=tools_spec,
-                        options={"temperature": settings.TEMPERATURE,
-                                 "top_p": settings.TOP_P,
-                                 "top_k": settings.TOP_K,
-                                },
-                        think=settings.SHOW_THOUGHTS,
-                        stream=True,
-                    )
-                
+                stream = await client.chat(**chat_args)
             except Exception as first_exc:
-                # Some models error (HTTP 500) when a tools payload is present –
-                # retry once without tools to keep basic chat working.
-                logger.warning(f"Ollama chat failed with tools payload (will retry without tools): {first_exc}")
-                # stream = await client.chat(
-                #     model=settings.LLM_MODEL,
-                #     messages=exec_conversation,
-                #     options={"temperature": settings.TEMPERATURE,
-                #              "top_p": settings.TOP_P,
-                #              "top_k": settings.TOP_K,
-                #             },
-                #     think=settings.SHOW_THOUGHTS,
-                #     stream=True,
-                # )
-
-                if settings.SHOW_THOUGHTS:
-                    stream = await client.chat(
-                        model=settings.LLM_MODEL,
-                        messages=exec_conversation,
-                        options={"temperature": settings.TEMPERATURE,
-                                 "top_p": settings.TOP_P,
-                                 "top_k": settings.TOP_K,
-                                },
-                        stream=True,
-                    )
+                if tools_spec:
+                    logger.warning(f"Ollama chat failed with tools payload (retrying without tools): {first_exc}")
+                    chat_args.pop("tools")
+                    stream = await client.chat(**chat_args)
                 else:
-                    stream = await client.chat(
-                        model=settings.LLM_MODEL,
-                        messages=exec_conversation,
-                        options={"temperature": settings.TEMPERATURE,
-                                 "top_p": settings.TOP_P,
-                                 "top_k": settings.TOP_K,
-                                },
-                        stream=True,
-                        think=settings.SHOW_THOUGHTS,
-                    )
+                    raise first_exc
+
 
             async for chunk in stream:
                 if thinking := chunk.get("thinking"):

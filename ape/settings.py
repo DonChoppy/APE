@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # General settings
     PORT: int = Field(8000, description="HTTP port for MCP server")
     LOG_LEVEL: str = Field("DEBUG", description="Root log level for Loguru")
-    MCP_SERVER_URL: HttpUrl = Field("http://localhost:8000", description="URL of the APE MCP server")
+    MCP_SERVER_URL: HttpUrl = Field("http://localhost:8000", description="URL of the Core MCP server (Gateway)")
 
     # LLM / Ollama
     OLLAMA_BASE_URL: HttpUrl = Field("http://localhost:11434", description="Base URL of the local Ollama server")
@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     TOP_P: float = Field(0.9, description="Nucleus sampling parameter (probability mass)")
     TOP_K: int = Field(40, description="Top-K sampling parameter (number of candidates)")
     MAX_TOOLS_ITERATIONS: int = Field(15, description="Max reasoning/tool iterations per user prompt")
+    CONTEXT_WINDOW: int | None = Field(None, description="Manual cap for the LLM context window (tokens). If None, uses model default.")
 
     # UI (CLI) options
     UI_THEME: str = Field("dark", description="CLI theme (dark/light)")
@@ -77,8 +78,10 @@ class Settings(BaseSettings):
                     "MCP_JWT_KEY is not set. Define it via environment variable (.env or export) before running APE."
                 )
         return self
+    
 
-    CONTEXT_MARGIN_TOKENS: int = Field(1024, description="Safety buffer deducted from model context length before pruning")
+
+    CONTEXT_MARGIN_TOKENS: int = Field(1024, description="Safety buffer deducted from context window before pruning/summarization")
 
     # Memory / summarisation
     SUMMARIZE_THOUGHTS: bool = Field(

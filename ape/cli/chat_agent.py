@@ -81,7 +81,12 @@ class ChatAgent(AgentCore):
         """Fetch model info and then initialize memory."""
         try:
             self.model_info = await get_ollama_model_info(settings.LLM_MODEL)
-            self.context_limit: int | None = self.model_info.get("context_length")
+            
+            # Use manual override if provided, otherwise detect from model
+            if settings.CONTEXT_WINDOW:
+                self.context_limit = settings.CONTEXT_WINDOW
+            else:
+                self.context_limit = self.model_info.get("context_length")
         except Exception as exc:
             logger.warning(f"Could not retrieve model info: {exc}")
             self.model_info = {}

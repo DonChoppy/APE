@@ -55,8 +55,7 @@ class APEChatCLI:
         self.session_manager = get_session_manager()
         # Wrapper that manages the underlying MCP stdio connection
         self.mcp_client = MCPClient()
-        # Kept for backward compatibility; will be removed in follow-up refactor
-        self.mcp_session = None
+        # self.mcp_session removal: we now rely on mcp_client wrapper exclusively
         self.context_manager = ContextManager(self.session_id)
         self.chat_agent = ChatAgent(self.session_id, self.mcp_client, self.context_manager)
         logger.info(f"Started new chat session: {self.session_id}")
@@ -93,16 +92,11 @@ class APEChatCLI:
     
     async def connect_to_mcp(self):
         """Connect to the MCP server through the reusable wrapper."""
-        success = await self.mcp_client.connect()
-        if success:
-            # expose underlying session for legacy code paths (to be removed later)
-            self.mcp_session = self.mcp_client.mcp_session
-        return success
+        return await self.mcp_client.connect()
     
     async def disconnect_from_mcp(self):
         """Disconnect via the reusable wrapper."""
         await self.mcp_client.disconnect()
-        self.mcp_session = None
     
     async def list_tools(self):
         """List available MCP tools."""
@@ -130,12 +124,12 @@ class APEChatCLI:
     async def show_history(self, limit: int = 10):
         """Show conversation history using MCP."""
         try:
-            if not self.mcp_session:
+            if not self.mcp_client.is_connected:
                 print("❌ Not connected to MCP server")
                 return
             
             logger.info(f"🔧 [MCP CLIENT] Calling get_conversation_history via MCP (session: {self.session_id}, limit: {limit})")
-            result = await self.mcp_session.call_tool(
+            result = await self.mcp_client.call_tool(
                 "get_conversation_history", 
                 {"session_id": self.session_id, "limit": limit}
             )
@@ -210,7 +204,7 @@ class APEChatCLI:
                 print("  Status: New session (no messages yet)")
                 
             print(f"  Total Sessions: {len(sessions)}")
-            print(f"  MCP Connected: {'✅' if self.mcp_session else '❌'}")
+            print(f"  MCP Connected: {'✅' if self.mcp_client.is_connected else '❌'}")
             
         except Exception as e:
             print(f"❌ Error getting session info: {e}")
@@ -225,7 +219,7 @@ class APEChatCLI:
         
         try:
             # Discover available tools
-            tools_result = await self.mcp_session.list_tools()
+            tools_result = await self.mcp_client.list_tools()
             capabilities["tools"] = [
                 {
                     "name": tool.name,
@@ -237,7 +231,7 @@ class APEChatCLI:
             
             # Discover available prompts (new SDKs) – with graceful fallback
             try:
-                prompts_result = await self.mcp_session.list_prompts()
+                prompts_result = await self.mcp_client.list_prompts()
                 prompt_items = getattr(prompts_result, "prompts", prompts_result)
                 capabilities["prompts"] = [
                     {
@@ -263,7 +257,7 @@ class APEChatCLI:
                     logger.debug(f"Local prompt registry fallback failed: {loc_exc}")
             
             # Discover available resources
-            resources_result = await self.mcp_session.list_resources()
+            resources_result = await self.mcp_client.list_resources()
             capabilities["resources"] = [
                 {
                     "name": resource.name,
@@ -463,11 +457,11 @@ class APEChatCLI:
     
     async def get_ollama_tools(self) -> list:
         """Get tools in Ollama format."""
-        if not self.mcp_session:
+        if not self.mcp_client.is_connected:
             return []
         
         try:
-            tools_result = await self.mcp_session.list_tools()
+            tools_result = await self.mcp_client.list_tools()
             ollama_tools = []
             
             for tool in tools_result.tools:
@@ -489,7 +483,7 @@ class APEChatCLI:
     
     async def handle_tool_calls(self, tool_calls: list) -> str:
         """Handle tool calls from the LLM using MCP protocol with streaming support."""
-        if not self.mcp_session:
+        if not self.mcp_client.is_connected:
             return "Sorry, I'm not connected to the MCP server right now."
         
         try:
@@ -520,7 +514,7 @@ class APEChatCLI:
                 logger.info(f"🔧 [MCP CLIENT] Executing tool: {function_name} with args: {arguments}")
                 
                 # Call the MCP tool
-                result = await self.mcp_session.call_tool(function_name, arguments)
+                result = await self.mcp_client.call_tool(function_name, arguments)
                 
                 if result.content:
                     tool_result = result.content[0].text

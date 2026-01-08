@@ -1,0 +1,7 @@
+{
+    "mcpServers": {
+        "sandbox": {
+            "url": "http://sandbox-mcp:8080/mcp/sse"
+        }
+    }
+}
